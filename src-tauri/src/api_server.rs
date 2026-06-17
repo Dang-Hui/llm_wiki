@@ -63,7 +63,7 @@ pub fn invalidate_config_cache() {
 pub fn start_api_server(app: AppHandle) {
     thread::spawn(move || loop {
         API_STATUS.store(0, Ordering::Relaxed);
-        let server = match bind_server_with_retry() {
+        let server = match bind_server_with_retry(&app) {
             Some(server) => server,
             None => {
                 API_STATUS.store(2, Ordering::Relaxed);
@@ -73,7 +73,8 @@ pub fn start_api_server(app: AppHandle) {
         };
 
         API_STATUS.store(1, Ordering::Relaxed);
-        eprintln!("[API Server] Listening on http://127.0.0.1:{PORT}{API_PREFIX}");
+        let bind_addr = api_bind_address(&app);
+        eprintln!("[API Server] Listening on http://{bind_addr}:{PORT}{API_PREFIX}");
 
         for request in server.incoming_requests() {
             let method = request.method().clone();
@@ -104,13 +105,34 @@ pub fn start_api_server(app: AppHandle) {
     });
 }
 
-fn bind_server_with_retry() -> Option<Server> {
+fn api_bind_address(app: &AppHandle) -> String {
+    if let Ok(addr) = std::env::var("LLM_WIKI_API_BIND_ADDRESS") {
+        let trimmed = addr.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Some(parsed) = load_app_state(app) {
+        if let Some(addr) = parsed
+            .get("apiConfig")
+            .and_then(|v| v.get("bindAddress"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            return addr.to_string();
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
+fn bind_server_with_retry(app: &AppHandle) -> Option<Server> {
+    let bind_addr = api_bind_address(app);
     for attempt in 1..=MAX_BIND_RETRIES {
-        match Server::http(format!("127.0.0.1:{PORT}")) {
+        match Server::http(format!("{bind_addr}:{PORT}")) {
             Ok(server) => return Some(server),
             Err(err) => {
                 eprintln!(
-                    "[API Server] Failed to bind 127.0.0.1:{PORT} (attempt {attempt}/{MAX_BIND_RETRIES}): {err}"
+                    "[API Server] Failed to bind {bind_addr}:{PORT} (attempt {attempt}/{MAX_BIND_RETRIES}): {err}"
                 );
                 if attempt < MAX_BIND_RETRIES {
                     thread::sleep(Duration::from_secs(BIND_RETRY_DELAY_SECS));
