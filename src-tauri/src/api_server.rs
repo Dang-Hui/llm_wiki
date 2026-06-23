@@ -122,7 +122,7 @@ fn api_bind_address(app: &AppHandle) -> String {
             return addr.to_string();
         }
     }
-    "127.0.0.1".to_string()
+    "0.0.0.0".to_string()
 }
 
 fn bind_server_with_retry(app: &AppHandle) -> Option<Server> {
